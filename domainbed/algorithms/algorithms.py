@@ -116,6 +116,41 @@ class ERM(Algorithm):
         return self.network(x)
 
 
+class FDA(Algorithm):
+    """
+    FDA
+    """
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(FDA, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
+        self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.optimizer = get_optimizer(
+            hparams["optimizer"],
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams["weight_decay"],
+        )
+
+    def update(self, x, y, **kwargs):
+        with autocast():
+            all_x = torch.cat(x)
+            all_y = torch.cat(y)
+            loss = F.cross_entropy(self.predict(all_x), all_y)
+
+        self.optimizer.zero_grad()
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+
+        self.scaler.update()
+
+        return {"loss": loss.item()}
+
+    def predict(self, x):
+        return self.network(x)
+
+
 class Mixstyle(Algorithm):
     """MixStyle w/o domain label (random shuffle)"""
     def __init__(self, input_shape, num_classes, num_domains, hparams):
