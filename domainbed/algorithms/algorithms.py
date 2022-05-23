@@ -2,6 +2,7 @@
 
 import copy
 from typing import List
+import random
 
 import torch
 import torch.nn as nn
@@ -135,8 +136,8 @@ class FDA(Algorithm):
 
     def update(self, x, y, **kwargs):
         with autocast():
-            all_x = torch.cat(x)
-            all_y = torch.cat(y)
+            all_x = x[1]
+            all_y = y[1]
             loss = F.cross_entropy(self.predict(all_x), all_y)
 
         self.optimizer.zero_grad()

@@ -37,7 +37,7 @@ def set_transfroms(dset, data_type, hparams, algorithm_class=None):
         dset.transforms = {"x": lambda x: x}
     elif data_type == "fda":
         # No augmentation before FDA operation
-        dset.transforms = {"x": DBT.basic, "x_aug": lambda x: x}
+        dset.transforms = {"x": DBT.aug, "x_aug": lambda x: x}
     else:
         raise ValueError(data_type)
 
@@ -68,10 +68,11 @@ def get_dataset(test_envs, args, hparams, algorithm_class=None):
             in_type = "test"
             out_type = "test"
         else:
-            in_type = "train"
-            out_type = "valid"
             if args.algorithm == 'FDA':
                 in_type = "fda"
+            else:
+                in_type = "train"
+            out_type = "valid"
 
         if is_mnist:
             in_type = "mnist"
@@ -92,7 +93,7 @@ def get_dataset(test_envs, args, hparams, algorithm_class=None):
     if args.algorithm == "FDA":
         dataset_all = DatasetAll_FDA([
             env for i, (env, _) in enumerate(in_splits) if i not in test_envs
-        ])
+        ], args.fda_mode)
 
     return dataset, dataset_all, in_splits, out_splits
 
@@ -141,8 +142,9 @@ class DatasetAll_FDA(Dataset):
     """
     Combine Seperated Datasets
     """
-    def __init__(self, data_list, alpha=1.0):
+    def __init__(self, data_list, mode="mix", alpha=1.0):
 
+        assert mode in ["mix", "uncertainty"]
         self.data = ConcatDataset(data_list)
 
         self.pre_transform = T.Compose([
@@ -157,32 +159,33 @@ class DatasetAll_FDA(Dataset):
         ])
 
         self.alpha = alpha
+        self.mode = mode
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        # img, label = self.data[idx]
         ret = self.data[idx]
-
         img = ret['x_aug']
         label = ret['y']
-
-        # randomly sample an item from the dataset
-        img_s, _ = self._sample_item()
-
-        # do pre_transform before FDA
         img = self.pre_transform(img)
-        img_s = self.pre_transform(img_s)
 
-        # FDA
-        img_mix = self._colorful_spectrum_mix(img, img_s, self.alpha)
+        if self.mode == "mix":
+            # randomly sample an item from the dataset
+            img_s, _ = self._sample_item()
+            img_s = self.pre_transform(img_s)
+            img_aug = self._colorful_spectrum_mix(img, img_s, self.alpha)
+        elif self.mode == "uncertainty":
+            if np.random.random() > 0.5:
+                img_aug = self._colorful_spectrum_sample(img, self.alpha)
+            else:
+                img_aug = img
 
         # do post_transform after FDA
         img = self.post_transform(img)
-        img_mix = self.post_transform(img_mix)
+        img_aug = self.post_transform(img_aug)
 
-        img = [img, img_mix]
+        img = [img, img_aug]
         label = [label, label]
 
         ret["x"] = img
@@ -191,6 +194,25 @@ class DatasetAll_FDA(Dataset):
         del ret["x_aug"]
 
         return ret
+
+    def _colorful_spectrum_sample(self, img, alpha):
+        abs_sqrtvar = np.load("./domainbed/datasets/abs_sqrtvar.npy")
+
+        img_fft = np.fft.fft2(img, axes=(0, 1))
+        img_abs, img_pha = np.abs(img_fft), np.angle(img_fft)
+
+        img_abs = np.fft.fftshift(img_abs, axes=(0, 1))
+
+        epsilon = np.random.randn(*abs_sqrtvar.shape)
+        img_abs_sample = epsilon * abs_sqrtvar + img_abs
+
+        img_abs_sample = np.fft.ifftshift(img_abs_sample, axes=(0, 1))
+
+        img_new = img_abs_sample * (np.e**(1j * img_pha))
+        img_new = np.real(np.fft.ifft2(img_new, axes=(0, 1)))
+        img_new = np.uint8(np.clip(img_new, 0, 255))
+
+        return img_new
 
     def _colorful_spectrum_mix(self, img1, img2, alpha, ratio=1.0):
         """Input image size: ndarray of [H, W, C]"""

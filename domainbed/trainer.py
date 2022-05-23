@@ -117,7 +117,7 @@ def train(test_envs,
         dataset=dataset_all,
         weights=None,
         batch_size=hparams['batch_size'] *
-        (len(dataset) - len(test_envs)) // 2,
+        (len(dataset) - len(test_envs)),
         num_workers=dataset.N_WORKERS)
 
     # setup eval loaders

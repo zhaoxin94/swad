@@ -71,6 +71,7 @@ def main():
     parser.add_argument("--prebuild_loader",
                         action="store_true",
                         help="Pre-build eval loaders")
+    parser.add_argument("--fda_mode", type=str, default="mix")
     args, left_argv = parser.parse_known_args()
 
     # setup hparams
